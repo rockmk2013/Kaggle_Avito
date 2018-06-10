@@ -156,7 +156,7 @@ tr_te <- tr %>%
          desc_pun = str_count(description, "[[:punct:]]"),
          titl_dig = str_count(title, "[[:digit:]]"),
          desc_dig = str_count(description, "[[:digit:]]"),
-         user_type = factor(user_type),
+         user_type = factor(user_type)  %>% as.integer(),
          category_name = factor(category_name) %>% as.integer(),
          parent_category_name = factor(parent_category_name) %>% as.integer(), 
          region = factor(region) %>% as.integer(),
@@ -164,7 +164,7 @@ tr_te <- tr %>%
          param_2 = factor(param_2) %>% as.integer(),
          param_3 = factor(param_3) %>% fct_lump(prop = 0.00005) %>% as.integer(),
          city =  factor(city) %>% fct_lump(prop = 0.0003) %>% as.integer(),
-         #user_id = factor(user_id) %>% fct_lump(prop = 0.000025) %>% as.integer(),
+         user_id = factor(user_id) %>% fct_lump(prop = 0.000025) %>% as.integer(),
          price = log1p(price),
          txt = paste(title, description, sep = " "),
          mday = mday(activation_date),
@@ -184,11 +184,24 @@ tr_te[1:10,]
 rm(tr, te); gc()
 ```
 
+#SVD features
+```{r}
+#---------------------------
+cat("Loading svd data...\n")
+svd_train <- read_delim("input/train_feature.csv","\t", escape_double = FALSE, trim_ws = TRUE) 
+svd_test <- read_delim("input/test_feature.csv","\t", escape_double = FALSE, trim_ws = TRUE)
+svd_all <- rbind(svd_train,svd_test)
+# bind svd feature to training data 
+svd_all <- svd_all[,c(2,18:36)]
+train_bind <- tr_te %>% left_join(svd_all,by=c("item_id"="item_id"))
+train_bind <- train_bind[,-1] #把item id 拿掉
+```
+
 #TFIDF
 ```{r}
 #---------------------------
 cat("Parsing text...\n")
-it <- tr_te %$%
+it <- train_bind %$%
   str_to_lower(txt) %>%
   str_replace_all("[^[:alpha:]]", " ") %>%
   str_replace_all("\\s+", " ") %>%
@@ -208,28 +221,13 @@ rm(it, vect, m_tfidf); gc()
 ```
 
 ```{r}
-
-```
-
-
-#SVD features
-```{r}
-#---------------------------
-cat("Loading svd data...\n")
-svd_train <- read_delim("input/train_feature.csv","\t", escape_double = FALSE, trim_ws = TRUE) 
-svd_test <- read_delim("input/test_feature.csv","\t", escape_double = FALSE, trim_ws = TRUE)
-svd_all <- rbind(svd_train,svd_test)
-# bind svd feature to training data 
-svd_all <- svd_all[,c(2,3,18:36)]
-train_bind <- tr_te %>% left_join(svd_all,by=c("item_id"="item_id","user_id"="user_id"))
-```
-
-```{r}
 cat("Preparing data...\n")
-X <- tr_te %>% 
-  select(-txt,-item_id,user_id) %>% 
-  sparse.model.matrix(~ . - 1, .) %>% 
-  cbind(tfidf)
+#2011861 x 51
+X <- train_bind %>% 
+  select(-txt) %>% 
+  sparse.model.matrix(~ . - 1, .) 
+#%>% cbind(tfidf)
+#2011862 x 12500
 
 rm(tr_te, tfidf); gc()
 
@@ -252,13 +250,13 @@ p <- list(objective = "reg:logistic",
           eval_metric = "rmse",
           nthread = 8,
           eta = 0.05,
-          max_depth = 17, 
-          min_child_weight = 10, 
+          max_depth = 17,  #5
+          min_child_weight = 10, #6
           gamma = 0,
           subsample = 0.8,  
           colsample_bytree = 0.7,
-          alpha = 2,
-          lambda = 0,
+          alpha = 2, #0
+          lambda = 0, 
           nrounds = 2000)
 ptm <- proc.time()
 #xgbcv <- xgb.cv( params = p, data = dtrain, nrounds = 2000, nfold = 5, showsd = T, stratified = T, print_every_n = 10, early_stop_round = 20, maximize = F)
@@ -290,7 +288,7 @@ min_c <- xgb_train_1$bestTune$min_child_weight
 
 ```{r}
 xgb.importance(cols, model = m_xgb) %>%
-  xgb.plot.importance(top_n = 35)
+  xgb.plot.importance(top_n = 10)
 ```
 
 ```{r}
