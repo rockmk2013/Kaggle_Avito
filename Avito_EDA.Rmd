@@ -195,6 +195,8 @@ svd_all <- rbind(svd_train,svd_test)
 svd_all <- svd_all[,c(2,18:36)]
 train_bind <- tr_te %>% left_join(svd_all,by=c("item_id"="item_id"))
 train_bind <- train_bind[,-1] #把item id 拿掉
+train_bind[1807048,36:37] <- train_bind[1807047,36:37] #NA
+which(is.na(train_bind))
 ```
 
 #TFIDF
@@ -222,11 +224,12 @@ rm(it, vect, m_tfidf); gc()
 
 ```{r}
 cat("Preparing data...\n")
-#2011861 x 51
+#2011862 x 51
 X <- train_bind %>% 
   select(-txt) %>% 
   sparse.model.matrix(~ . - 1, .) 
-#%>% cbind(tfidf)
+#%>%
+#  cbind(tfidf)
 #2011862 x 12500
 
 rm(tr_te, tfidf); gc()
@@ -239,7 +242,7 @@ dval <- xgb.DMatrix(data = X[-tri, ], label = y[-tri])
 cols <- colnames(X)
 
 #train_ans = y[tri]
-rm(X, y, tri); gc()
+#rm(X, y, tri); gc()
 
 ```
 
