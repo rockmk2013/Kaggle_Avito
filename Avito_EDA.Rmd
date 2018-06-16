@@ -38,99 +38,113 @@ tri <- 1:nrow(tr)
 y <- tr$deal_probability
 ```
 
+```{r}
+# Sys.setlocale("LC_CTYPE", "russian")
+# #Enoding(annoyingMisbehavingString) <- "UTF-8"
+# tr_te_2 <- tr %>% 
+#   select(-deal_probability) %>% 
+#   bind_rows(te) %>% 
+#   select(title,description)
+# write.csv(tr_te_2,"tr_te_2.csv",row.names = FALSE,fileEncoding = "UTF-8") # for russian
+# #tr_te_10 <- tr_te_2[1:100,]
+# #write.csv(tr_te_10,"tr_te_10.csv",row.names = FALSE,fileEncoding = "UTF-8")
+```
+
 #original 
 ```{r}
-summary(tr)
-tr[1:10,]
+# summary(tr)
+# tr[1:10,]
 ```
 
 #deal probability (unbalanced)
 ```{r}
-ggplot(tr, aes(tr$deal_probability)) +
-  geom_histogram()+
-  ggtitle("deal prob")+
-  ylab("")+
-  theme_bw()+
-  theme(plot.title = element_text(hjust = 0.5))
+# ggplot(tr, aes(tr$deal_probability)) +
+#   geom_histogram()+
+#   ggtitle("deal prob")+
+#   ylab("")+
+#   theme_bw()+
+#   theme(plot.title = element_text(hjust = 0.5))
 ```
 
 #單變量分析
 ```{r}
-library(scales)
-#category 
-tr %>% group_by(category_name) %>% 
-  summarise(count=n()) %>% 
-  ggplot(aes(reorder(category_name,count),count))+
-  geom_bar(stat = "identity")+coord_flip()+
-  ggtitle("category")+
-  xlab("")+
-  theme_bw()+
-  theme(plot.title = element_text(hjust = 0.5))
-#usertype
-tr %>% group_by(user_type) %>% 
-  summarise(count=n()) %>% 
-  ggplot(aes(reorder(user_type,count),count))+
-  geom_bar(stat = "identity")+coord_flip()+
-  ggtitle("usertype")+
-  xlab("")+
-  theme_bw()+
-  theme(plot.title = element_text(hjust = 0.5))
-#parent category
-tr %>% group_by(parent_category_name) %>% 
-  summarise(count=n()) %>% 
-  ggplot(aes(reorder(parent_category_name,count),count))+
-  geom_bar(stat = "identity")+coord_flip()+
-  ggtitle("parent category")+
-  xlab("")+
-  theme_bw()+
-  theme(plot.title = element_text(hjust = 0.5))
-#parent category to deal prob
-tr %>% ggplot(aes(parent_category_name,y=deal_probability))+
-  geom_boxplot()+
-  coord_flip()+
-  ggtitle("parent category to deal prob box")+
-  xlab("deal probability")+
-  theme_bw()+
-  theme(plot.title = element_text(hjust = 0.5))
-#price 
-pricena = which(is.na(tr$price))
-#補平均值
-#tr$price[pricena] = mean(tr$price,na.rm=TRUE)
+# library(scales)
+# #category 
+# tr %>% group_by(category_name) %>% 
+#   summarise(count=n()) %>% 
+#   ggplot(aes(reorder(category_name,count),count))+
+#   geom_bar(stat = "identity")+coord_flip()+
+#   ggtitle("category")+
+#   xlab("")+
+#   theme_bw()+
+#   theme(plot.title = element_text(hjust = 0.5))
+# #usertype
+# tr %>% group_by(user_type) %>% 
+#   summarise(count=n()) %>% 
+#   ggplot(aes(reorder(user_type,count),count))+
+#   geom_bar(stat = "identity")+coord_flip()+
+#   ggtitle("usertype")+
+#   xlab("")+
+#   theme_bw()+
+#   theme(plot.title = element_text(hjust = 0.5))
+# #parent category
+# tr %>% group_by(parent_category_name) %>% 
+#   summarise(count=n()) %>% 
+#   ggplot(aes(reorder(parent_category_name,count),count))+
+#   geom_bar(stat = "identity")+coord_flip()+
+#   ggtitle("parent category")+
+#   xlab("")+
+#   theme_bw()+
+#   theme(plot.title = element_text(hjust = 0.5))
+# #parent category to deal prob
+# tr %>% ggplot(aes(parent_category_name,y=deal_probability))+
+#   geom_boxplot()+
+#   coord_flip()+
+#   ggtitle("parent category to deal prob box")+
+#   xlab("deal probability")+
+#   theme_bw()+
+#   theme(plot.title = element_text(hjust = 0.5))
+# #price 
+# pricena_tr = which(is.na(tr$price))
+# pricena_te = which(is.na(te$price))
+# #補平均值
+# tr$price[pricena_tr] = mean(tr$price,na.rm=TRUE)
+# te$price[pricena_te] = mean(te$price,na.rm=TRUE)
 #取log1p = log(1+x)
-#tr$price = log1p(tr$price)
-ggplot(tr, aes(tr$price)) +
-  geom_histogram()+
-  ggtitle("log price")+
-  xlab("value")+
-  theme_bw()+
-  theme(plot.title = element_text(hjust = 0.5))
-#param1 
-tr %>% group_by(param_1) %>% 
-  summarise(count=n()) %>% arrange(desc(count)) %>% top_n(10) %>% 
-  ggplot(aes(reorder(param_1,count),count))+
-  geom_bar(stat = "identity")+coord_flip()+
-  ggtitle("param1")+
-  xlab("")+
-  theme_bw()+
-  theme(plot.title = element_text(hjust = 0.5))
-#param2
-tr %>% group_by(param_2) %>% 
-  summarise(count=n()) %>% arrange(desc(count)) %>% top_n(10) %>% 
-  ggplot(aes(reorder(param_2,count),count))+
-  geom_bar(stat = "identity")+coord_flip()+
-  ggtitle("param2")+
-  xlab("")+
-  theme_bw()+
-  theme(plot.title = element_text(hjust = 0.5))
-#param3 
-tr %>% group_by(param_3) %>% 
-  summarise(count=n()) %>% arrange(desc(count)) %>% top_n(10) %>% 
-  ggplot(aes(reorder(param_3,count),count))+
-  geom_bar(stat = "identity")+coord_flip()+
-  ggtitle("param3")+
-  xlab("")+
-  theme_bw()+
-  theme(plot.title = element_text(hjust = 0.5))
+# #tr$price = log1p(tr$price)
+# ggplot(tr, aes(tr$price)) +
+#   geom_histogram()+
+#   ggtitle("log price")+
+#   xlab("value")+
+#   theme_bw()+
+#   theme(plot.title = element_text(hjust = 0.5))
+# #param1 
+# tr %>% group_by(param_1) %>% 
+#   summarise(count=n()) %>% arrange(desc(count)) %>% top_n(10) %>% 
+#   ggplot(aes(reorder(param_1,count),count))+
+#   geom_bar(stat = "identity")+coord_flip()+
+#   ggtitle("param1")+
+#   xlab("")+
+#   theme_bw()+
+#   theme(plot.title = element_text(hjust = 0.5))
+# #param2
+# tr %>% group_by(param_2) %>% 
+#   summarise(count=n()) %>% arrange(desc(count)) %>% top_n(10) %>% 
+#   ggplot(aes(reorder(param_2,count),count))+
+#   geom_bar(stat = "identity")+coord_flip()+
+#   ggtitle("param2")+
+#   xlab("")+
+#   theme_bw()+
+#   theme(plot.title = element_text(hjust = 0.5))
+# #param3 
+# tr %>% group_by(param_3) %>% 
+#   summarise(count=n()) %>% arrange(desc(count)) %>% top_n(10) %>% 
+#   ggplot(aes(reorder(param_3,count),count))+
+#   geom_bar(stat = "identity")+coord_flip()+
+#   ggtitle("param3")+
+#   xlab("")+
+#   theme_bw()+
+#   theme(plot.title = element_text(hjust = 0.5))
 ```
 
 #add feature
@@ -168,8 +182,7 @@ tr_te <- tr %>%
          price = log1p(price),
          txt = paste(title, description, sep = " "),
          mday = mday(activation_date),
-         wday = wday(activation_date),         
-         day = day(activation_date)) %>% 
+         wday = wday(activation_date)) %>% 
   select(-image, -title, -description, -activation_date) %>% 
   replace_na(list(image_top_1 = -1, price = -1,  #剩餘變數空值的處理
                   param_1 = -1, param_2 = -1, param_3 = -1, titl_cap = 0,
@@ -184,22 +197,36 @@ tr_te[1:10,]
 rm(tr, te); gc()
 ```
 
-#SVD features
+#SVD & Image features
 ```{r}
-#---------------------------
+#-----------read svd data----------------
 cat("Loading svd data...\n")
 svd_train <- read_delim("input/train_feature.csv","\t", escape_double = FALSE, trim_ws = TRUE) 
 svd_test <- read_delim("input/test_feature.csv","\t", escape_double = FALSE, trim_ws = TRUE)
 svd_all <- rbind(svd_train,svd_test)
 # bind svd feature to training data 
 svd_all <- svd_all[,c(2,18:36)]
+
+#-----------read Image data---------------
+image_train <- read_csv("input/trainimagefeature.csv")
+image_test <- read_csv("input/testimagefeature.csv")
+image_bind <- rbind(image_train,image_test)
+
+#-----------train bind--------------------
 train_bind <- tr_te %>% left_join(svd_all,by=c("item_id"="item_id"))
+train_bind <- train_bind %>% left_join(image_bind,by=c("item_id"="item_id"))
 train_bind <- train_bind[,-1] #把item id 拿掉
-train_bind[1807048,36:37] <- train_bind[1807047,36:37] #NA
+
+#------------deal null value-------------
+train_bind[1807048,35:36] <- train_bind[1807047,35:36] #NA
+train_bind$pred1[which(is.na(train_bind$pred1))] <- "NONE"
+train_bind$pred2[which(is.na(train_bind$pred2))] <- "NONE"
+train_bind$pred3[which(is.na(train_bind$pred3))] <- "NONE"
 which(is.na(train_bind))
+str(train_bind)
 ```
 
-#TFIDF
+#TFIDF feature
 ```{r}
 #---------------------------
 cat("Parsing text...\n")
@@ -227,9 +254,8 @@ cat("Preparing data...\n")
 #2011862 x 51
 X <- train_bind %>% 
   select(-txt) %>% 
-  sparse.model.matrix(~ . - 1, .) 
-#%>%
-#  cbind(tfidf)
+  sparse.model.matrix(~ . - 1, .) %>%
+  cbind(tfidf)
 #2011862 x 12500
 
 rm(tr_te, tfidf); gc()
@@ -256,11 +282,24 @@ p <- list(objective = "reg:logistic",
           max_depth = 17,  #5
           min_child_weight = 10, #6
           gamma = 0,
-          subsample = 0.8,  
+          subsample = 0.8,
           colsample_bytree = 0.7,
           alpha = 2, #0
-          lambda = 0, 
+          lambda = 0,
           nrounds = 2000)
+# p <- list(objective = "reg:logistic",
+#           booster = "gbtree",
+#           eval_metric = "rmse",
+#           nthread = 8,
+#           eta = 0.05,
+#           max_depth = 7,  #5
+#           min_child_weight = 10, #6
+#           gamma = 0,
+#           subsample = 0.75,  
+#           colsample_bytree = 1,
+#           alpha = 1, #0
+#           lambda = 0, 
+#           nrounds = 2000)
 ptm <- proc.time()
 #xgbcv <- xgb.cv( params = p, data = dtrain, nrounds = 2000, nfold = 5, showsd = T, stratified = T, print_every_n = 10, early_stop_round = 20, maximize = F)
 #n_iter <- xgbcv$niter
@@ -282,11 +321,49 @@ xgb_grid_1 <- expand.grid(nrounds=500, eta = 0.05,
                           min_child_weight = c(7,9,11,13,15), subsample=0.8, 
                           colsample_bytree=0.7)
 
-xgb_train_1 <- train(x=dtrain, trControl = xgb_trcontrol_1,tuneGrid = xgb_grid_1, method = "xgbTree")
+xgb_train_1 <- caret::train(x=X,y=y, trControl = xgb_trcontrol_1,tuneGrid = xgb_grid_1, method = "xgbTree")
 
 # Keep the best results for second round tuning
 max_d <- xgb_train_1$bestTune$max_depth
 min_c <- xgb_train_1$bestTune$min_child_weight
+```
+
+
+#tuning 2
+```{r}
+library(mlr)
+# X ==> 1503424,12650
+summ <- summary(X)
+
+
+fact_col <- colnames(X)[sapply(X,is.character)]
+
+for(i in fact_col) set(train,j=i,value = factor(train[[i]]))
+for (i in fact_col) set(test,j=i,value = factor(test[[i]]))
+
+#create tasks
+traintask <- makeClassifTask (data = X,target = "target")
+testtask <- makeClassifTask (data = X,target = "target")
+
+#do one hot encoding`<br/> 
+traintask <- createDummyFeatures (obj = traintask,target = "target") 
+testtask <- createDummyFeatures (obj = testtask,target = "target")
+
+
+lrn <- makeLearner("classif.xgboost",predict.type = "response")
+lrn$par.vals <- list( objective="binary:logistic", eval_metric="error", nrounds=100L, eta=0.1)
+
+params <- makeParamSet( makeDiscreteParam("booster",values = c("gbtree","gblinear")), makeIntegerParam("max_depth",lower = 3L,upper = 10L), makeNumericParam("min_child_weight",lower = 1L,upper = 10L), makeNumericParam("subsample",lower = 0.5,upper = 1), makeNumericParam("colsample_bytree",lower = 0.5,upper = 1))
+
+rdesc <- makeResampleDesc("CV",stratify = T,iters=5L)
+ctrl <- makeTuneControlRandom(maxit = 10L)
+
+library(parallel)
+library(parallelMap) 
+parallelStartSocket(cpus = detectCores())
+mytune <- tuneParams(learner = lrn, task = traintask, resampling = rdesc, measures = acc, par.set = params, control = ctrl, show.info = T)
+
+
 ```
 
 ```{r}
