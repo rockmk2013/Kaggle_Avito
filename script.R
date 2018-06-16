@@ -9,21 +9,23 @@ library(Matrix)
 library(stringr)
 library(stringi)
 library(forcats)
+library(mlr)
+library(dplyr)
 set.seed(0)
 
 #---------------------------
 cat("Loading data...\n")
-tr <- read_csv("input/train.csv") 
-te <- read_csv("input/test.csv")
+tr <- read_csv("C:/Users/p5i7g/Documents/R/Kaggle_Avito/input/train.csv") 
+te <- read_csv("C:/Users/p5i7g/Documents/R/Kaggle_Avito/input/test.csv")
 
 #---------------------------
 cat("Preprocessing...\n")
 tri <- 1:nrow(tr)
 y <- tr$deal_probability
 
-#挑選除了目標外的變數，並新增欄位
+#???選???了目標?????????數，並???增??????
 tr_te <- tr %>% 
-  select(-deal_probability) %>% 
+  dplyr::select(-deal_probability) %>% 
   bind_rows(te) %>% 
   mutate(no_img = is.na(image) %>% as.integer(),
          no_dsc = is.na(description) %>% as.integer(),
@@ -33,16 +35,17 @@ tr_te <- tr %>%
          titl_len = str_length(title),
          desc_len = str_length(description),
          titl_capE = str_count(title, "[A-Z]"),
-         titl_capR = str_count(title, "[А-Я]"),
+         titl_capR = str_count(title, "[??-Я]"),
          desc_capE = str_count(description, "[A-Z]"),
-         desc_capR = str_count(description, "[А-Я]"),
-         titl_cap = str_count(description, "[A-ZА-Я]"),
-         desc_cap = str_count(description, "[A-ZА-Я]"),
+         desc_capR = str_count(description, "[??-Я]"),
+         titl_cap = str_count(description, "[A-Z??-Я]"),
+         desc_cap = str_count(description, "[A-Z??-Я]"),
          titl_pun = str_count(title, "[[:punct:]]"),
          desc_pun = str_count(description, "[[:punct:]]"),
          titl_dig = str_count(title, "[[:digit:]]"),
          desc_dig = str_count(description, "[[:digit:]]"),
-         user_type = factor(user_type),
+#         user_type = factor(user_type),
+         user_type = as.numeric(as.factor(user_type)),
          category_name = factor(category_name) %>% as.integer(),
          parent_category_name = factor(parent_category_name) %>% as.integer(), 
          region = factor(region) %>% as.integer(),
@@ -56,7 +59,7 @@ tr_te <- tr %>%
          mday = mday(activation_date),
          wday = wday(activation_date),         
          day = day(activation_date)) %>% 
-  select(-item_id, -image, -title, -description, -activation_date) %>% 
+  dplyr::select( -image, -title, -description, -activation_date) %>% 
   replace_na(list(image_top_1 = -1, price = -1, 
                   param_1 = -1, param_2 = -1, param_3 = -1, titl_cap = 0,
                   desc_len = 0, desc_cap = 0, desc_pun = 0, desc_dig = 0,
@@ -65,7 +68,8 @@ tr_te <- tr %>%
 
 rm(tr, te); gc()
 
-#---------------------------
+
+# TFIDF---------------------------
 cat("Parsing text...\n")
 it <- tr_te %$%
   str_to_lower(txt) %>%
@@ -83,6 +87,97 @@ tfidf <-  create_dtm(it, vect) %>%
   fit_transform(m_tfidf)
 
 rm(it, vect, m_tfidf); gc()
+
+rm(svd_test, svd_train); gc()
+
+
+#-----------read svd data----------------
+cat("Loading svd data...\n")
+svd_train <- read_csv("C:/Users/p5i7g/Documents/R/Kaggle_Avito/input/train_feature.csv") 
+svd_test <- read_csv("C:/Users/p5i7g/Documents/R/Kaggle_Avito/input/test_feature.csv")
+svd_all <- rbind(svd_train,svd_test)
+# bind svd feature to training data 
+svd_all <- svd_all[,c(2,18:36)]
+
+#-----------read Image data---------------
+image_train <- read_csv("C:/Users/p5i7g/Documents/R/Kaggle_Avito/input/train_image_feature.csv")
+image_test <- read_csv("C:/Users/p5i7g/Documents/R/Kaggle_Avito/input/test_image_feature.csv")
+image_bind <- rbind(image_train,image_test)
+
+#-----------train bind--------------------
+train_bind <- tr_te %>% left_join(svd_all,by=c("item_id"="item_id"))
+train_bind <- train_bind %>% left_join(image_bind,by=c("item_id"="item_id"))
+train_bind <- train_bind[,-1] #??tem id ????
+
+#------------deal null value-------------
+train_bind[1807048,35:36] <- train_bind[1807047,35:36] #NA
+train_bind$pred1[which(is.na(train_bind$pred1))] <- "NONE"
+train_bind$pred2[which(is.na(train_bind$pred2))] <- "NONE"
+train_bind$pred3[which(is.na(train_bind$pred3))] <- "NONE"
+which(is.na(train_bind))
+str(train_bind)
+
+
+
+
+#---------------------------
+tr_te <- tr_te[-((length(y)+1):nrow(tr_te)),] %>% dplyr::select(-item_id, -txt)
+train <- tr_te # copying does not change memory usage
+train$deal_probability <- y
+rm(tr_te) ; gc() # clean up
+
+# setup mlr ----------------------------
+cat("\n Setup Learners...  \n")
+task <- mlr::makeRegrTask(id = "avito", data = train, target = "deal_probability")
+task
+
+
+# Benchmark on small sample -----------------------------------------------
+cat("Benchmark Learners...  \n")
+
+### List of learners to be compared
+learners = list(
+  makeLearner("regr.glm"), 
+  makeLearner("regr.xgboost"),
+  makeLearner("regr.bst"), 
+  makeLearner("regr.elmNN"), 
+  makeLearner("regr.fnn")
+)
+
+
+rdesc <- makeResampleDesc("CV", iters = 2)
+bmr = benchmark(learners = learners, tasks = task, resamplings = rdesc, measures = rmse)
+
+
+
+# Hyper parameter tuning --------------------------------------------------
+
+cat("Hyper parameter tuning for xgboost...")
+
+# Discrete search space for the number of rounds
+# max_depth = c(15,17,19,21)
+# nrounds=2000, eta = 0.05, 
+# gamma = 0, max_depth = c(15,17,19,21), 
+# min_child_weight = c(7,9,11,13,15), subsample=0.8, 
+# colsample_bytree=0.7
+# alpha = 2,
+
+discrete_ps = makeParamSet(
+  makeDiscreteParam("nrounds", values = c(50)),
+  makeDiscreteParam("max_depth", values = c(15,17,19,21)),
+  makeDiscreteParam("min_child_weight", values = c(7,9,11,13,15)),
+  makeDiscreteParam("alpha", values = c(0,2))
+)
+discrete_ps
+
+ctrl = makeTuneControlGrid()
+
+res = tuneParams("regr.xgboost", task = task, resampling = rdesc,
+                 par.set = discrete_ps, control = ctrl, measures = rmse)
+
+cat("It seems as performance can be dramatically improved just by increasing the number of nrounds, we use that as our first shot...")
+
+
 
 #---------------------------
 cat("Preparing data...\n")
@@ -109,7 +204,7 @@ cat("Training model...\n")
 p <- list(objective = "reg:logistic",
           booster = "gbtree",
           eval_metric = "rmse",
-          nthread = 8, #cpu 數量
+          nthread = 8, #cpu ??????
           eta = 0.05,
           max_depth = 17, 
           min_child_weight = 10,
