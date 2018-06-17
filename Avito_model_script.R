@@ -64,12 +64,12 @@ tr_te <- tr %>%
          param_3 = factor(param_3) %>% fct_lump(prop = 0.00005) %>% as.integer(),
          city =  factor(city) %>% fct_lump(prop = 0.0003) %>% as.integer(),
          user_id = factor(user_id) %>% fct_lump(prop = 0.000025) %>% as.integer(),
-         price = log1p(price),
+         price = log(price+0.001),
          txt = paste(title, description, sep = " "),
          mday = mday(activation_date),
          wday = wday(activation_date)) %>% 
   select(-image, -title, -description, -activation_date) %>% 
-  replace_na(list(image_top_1 = -1, price = -1,  #剩餘變數空值的處理
+  replace_na(list(image_top_1 = -1,  #剩餘變數空值的處理
                   param_1 = -1, param_2 = -1, param_3 = -1, titl_cap = 0,
                   desc_len = 0, desc_cap = 0, desc_pun = 0, desc_dig = 0,
                   desc_capE = 0, desc_capR = 0, desc_lowE = 0, desc_lowR = 0)) %T>% 
@@ -91,9 +91,21 @@ image_train <- read_csv("input/trainimagefeature.csv")
 image_test <- read_csv("input/testimagefeature.csv")
 image_bind <- rbind(image_train,image_test)
 
+#-----------------kmeans feature------------------------
+km11 <- kmeans(svd_all[,c(6:20)],centers=11,nstart=10)
+wss11=km11$tot.withinss
+bss11=km11$betweenss
+wss11/bss11
+clust <- km11$cluster
+
+#----------------ridge feature-------------------------
+ridge <- read_csv("input/ridge.csv")
+
 #-----------train bind--------------------
 train_bind <- tr_te %>% left_join(svd_all,by=c("item_id"="item_id"))
 train_bind <- train_bind %>% left_join(image_bind,by=c("item_id"="item_id"))
+train_bind <- cbind(train_bind,clust)
+train_bind <- train_bind %>% left_join(ridge,by=c("item_id"="item_id"))
 train_bind <- train_bind[,-1] #把item id 拿掉
 
 #------------deal null value-------------
@@ -104,6 +116,8 @@ train_bind$pred3[which(is.na(train_bind$pred3))] <- "NONE"
 which(is.na(train_bind))
 str(train_bind)
 
+rm(svd_all,svd_train,svd_test,image_bind,image_test,image_train,km11,ridge)
+gc()
 #TFIDF feature
 #---------------------------
 cat("Parsing text...\n")
@@ -115,7 +129,7 @@ it <- train_bind %$%
   itoken()
 
 vect <- create_vocabulary(it, ngram = c(1, 1), stopwords = stopwords("ru")) %>%
-  prune_vocabulary(term_count_min = 3, doc_proportion_max = 0.4, vocab_term_max = 15000) %>% 
+  prune_vocabulary(term_count_min = 3, doc_proportion_max = 0.4, vocab_term_max = 13000) %>% 
   vocab_vectorizer()
 
 m_tfidf <- TfIdf$new(norm = "l2", sublinear_tf = T)
@@ -125,26 +139,27 @@ tfidf <-  create_dtm(it, vect) %>%
 #-----memory manage-----
 rm(it, vect, m_tfidf); gc()
 
+
 #----add tune code------
 # tr_te <- tr_te[-((length(y)+1):nrow(tr_te)),] %>% dplyr::select(-item_id, -txt)
 # train <- tr_te # copying does not change memory usage
 #train$deal_probability <- y
 
-tune_train <- train_bind[tri,] %>% dplyr::select(-txt) 
+tune_train <- train_bind[tri,] %>% dplyr::select(-txt,-pred1,-pred2,-pred3) 
 tune_train$deal_probability <- y
 
-tune_train$pred1 <- as.integer(tune_train$pred1)
-tune_train$pred2 <- as.integer(tune_train$pred2)
-tune_train$pred3 <- as.integer(tune_train$pred3)
+# tune_train$pred1 <- as.integer(tune_train$pred1)
+# tune_train$pred2 <- as.integer(tune_train$pred2)
+# tune_train$pred3 <- as.integer(tune_train$pred3)
+
 # stratafied sampling
-#tune_train$deal_probability
 
 interval <- seq(0,1,length.out = 11)
 tune_train_sample = list()
 for (i in 1:10) {
   sample_range <- which(tune_train$deal_probability<interval[i+1] & tune_train$deal_probability>=interval[i])
   print(length(sample_range))
-  num <- round(length(sample_range)*0.1)
+  num <- round(length(sample_range)*0.05)
   tune_train_sample[[i]] <- tune_train[sample(sample_range,num),] 
 }
 tune_train_sample = do.call(rbind,tune_train_sample)
@@ -161,44 +176,50 @@ rdesc <- makeResampleDesc("CV", iters = 5)
 
 cat("Hyper parameter tuning for xgboost...")
 
-# Discrete search space for the number of rounds
-# max_depth = c(15,17,19,21)
-# nrounds=2000, eta = 0.05, 
-# gamma = 0, max_depth = c(15,17,19,21), 
-# min_child_weight = c(7,9,11,13,15), subsample=0.8, 
-# colsample_bytree=0.7
-# alpha = 2,
-
+cat("Tune max_depth and min_child_weight...")
 discrete_ps = makeParamSet(
-  makeDiscreteParam("nrounds", values = c(500)),
-  #makeDiscreteParam("max_depth", values = c(19,21,23,25)),
-  #makeDiscreteParam("min_child_weight", values = c(7,9,11,13,15)),
-  #makeDiscreteParam("alpha", values = c(0,2)),
-  #makeDiscreteParam("gamma", values = c(0,0.5,1))
-  #makeDiscreteParam("lambda", values = c(0,0.5,1))
-  makeDiscreteParam("max_depth", values = 21),
-  makeDiscreteParam("min_child_weight", values = 9),
-  makeDiscreteParam("alpha", values = 2),
-  makeDiscreteParam("subsample", values = c(0.2,0.4,0.6,0.8)),
-  makeDiscreteParam("colsample_bytree", values = c(0.5,0.6,0.7,0.8))
+  makeDiscreteParam("nrounds", values = c(200)),
+  makeDiscreteParam("max_depth", values = c(19,21,23,25)),
+  makeDiscreteParam("min_child_weight", values = c(7,9,11,13,15))
 )
-discrete_ps
-
 ctrl = makeTuneControlGrid()
-
 res = tuneParams("regr.xgboost", task = task, resampling = rdesc,
                  par.set = discrete_ps, control = ctrl, measures = rmse)
-
-cat("It seems as performance can be dramatically improved just by increasing the number of nrounds, we use that as our first shot...")
-
 best_max_d <- res$x$max_depth
 best_min_c <- res$x$min_child_weight
-best_alpha <- res$x$alpha
+
+cat("Tune sub_sample and colsample_bytree...")
+discrete_ps = makeParamSet(
+  makeDiscreteParam("nrounds", values = c(200)),
+  makeDiscreteParam("subsample", values = c(0.2,0.4,0.6,0.8)),
+  makeDiscreteParam("colsample_bytree", values = c(0.5,0.6,0.7,0.8)),
+  makeDiscreteParam("max_depth", values = best_max_d),
+  makeDiscreteParam("min_child_weight", values = best_min_c)
+)
+ctrl = makeTuneControlGrid()
+res = tuneParams("regr.xgboost", task = task, resampling = rdesc,
+                 par.set = discrete_ps, control = ctrl, measures = rmse)
 best_subsam <- res$x$subsample
 best_col_tree <- res$x$colsample_bytree
 
-cat(best_max_d,"/",best_min_c,"/",best_alpha,"/",best_subsam,"/",best_col_tree)
+cat("Tune alpha and gamma...")
+discrete_ps = makeParamSet(
+  makeDiscreteParam("nrounds", values = c(200)),
+  makeDiscreteParam("alpha", values = c(0,2)),
+  makeDiscreteParam("gamma", values = c(0,0.5,1,1.5)),
+  makeDiscreteParam("max_depth", values = best_max_d),
+  makeDiscreteParam("min_child_weight", values = best_min_c),
+  makeDiscreteParam("subsample", values = best_subsam),
+  makeDiscreteParam("colsample_bytree", values = best_col_tree)
+)
+ctrl = makeTuneControlGrid()
+res = tuneParams("regr.xgboost", task = task, resampling = rdesc,
+                 par.set = discrete_ps, control = ctrl, measures = rmse)
+best_alpha <- res$x$alpha
+best_gamma <- res$x$gamma
 
+cat(best_max_d,"/",best_min_c,"/",best_alpha,"/",best_subsam,"/",best_col_tree,"/",best_gamma)
+#21 / 13 / 2 / 0.8 / 0.6 / 1
 
 
 #Combine data
@@ -224,32 +245,32 @@ cols <- colnames(X)
 #rm(X, y, tri); gc()
 
 cat("Training model...\n")
-p <- list(objective = "reg:logistic",
-          booster = "gbtree",
-          eval_metric = "rmse",
-          nthread = 8,
-          eta = 0.05,
-          max_depth = best_max_d ,  #21
-          min_child_weight = best_min_c, #9
-          gamma = 0,
-          subsample = best_subsam, #0.8
-          colsample_bytree = best_col_tree, #0.7
-          alpha = best_alpha, #2
-          lambda = 0,
-          nrounds = 2000)
 # p <- list(objective = "reg:logistic",
 #           booster = "gbtree",
 #           eval_metric = "rmse",
 #           nthread = 8,
 #           eta = 0.05,
-#           max_depth = 7,  #5
-#           min_child_weight = 10, #6
+#           max_depth = best_max_d ,  #21
+#           min_child_weight = best_min_c, #9
 #           gamma = 0,
-#           subsample = 0.75,  
-#           colsample_bytree = 1,
-#           alpha = 1, #0
-#           lambda = 0, 
+#           subsample = best_subsam, #0.8
+#           colsample_bytree = best_col_tree, #0.7
+#           alpha = best_alpha, #2
+#           lambda = 0,
 #           nrounds = 2000)
+p <- list(objective = "reg:logistic",
+          booster = "gbtree",
+          eval_metric = "rmse",
+          nthread = 8,
+          eta = 0.05,
+          max_depth = 21,  
+          min_child_weight = 13, 
+          gamma = 1,
+          subsample = 0.8,
+          colsample_bytree = 0.6,
+          alpha = 2, 
+          lambda = 0,
+          nrounds = 2000)
 ptm <- proc.time()
 #xgbcv <- xgb.cv( params = p, data = dtrain, nrounds = 2000, nfold = 5, showsd = T, stratified = T, print_every_n = 10, early_stop_round = 20, maximize = F)
 #n_iter <- xgbcv$niter
