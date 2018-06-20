@@ -43,19 +43,19 @@ tr_te <- tr %>%
          no_p1 = is.na(param_1) %>% as.integer(), #param1 na processing
          no_p2 = is.na(param_2) %>% as.integer(), #param2 na processing
          no_p3 = is.na(param_3) %>% as.integer(), #param3 na processing
-         titl_len = str_length(title),
-         desc_len = str_length(description),
-         titl_capE = str_count(title, "[A-Z]"),
-         titl_capR = str_count(title, "[А-Я]"),
-         desc_capE = str_count(description, "[A-Z]"),
-         desc_capR = str_count(description, "[А-Я]"),
-         titl_cap = str_count(description, "[A-ZА-Я]"),
-         desc_cap = str_count(description, "[A-ZА-Я]"),
-         titl_pun = str_count(title, "[[:punct:]]"),
-         desc_pun = str_count(description, "[[:punct:]]"),
-         titl_dig = str_count(title, "[[:digit:]]"),
-         desc_dig = str_count(description, "[[:digit:]]"),
-         user_type = factor(user_type)  %>% as.integer(),
+         titl_len = str_length(title), #長度
+         desc_len = str_length(description), #長度
+         titl_capE = str_count(title, "[A-Z]"), #標題英文
+         titl_capR = str_count(title, "[А-Я]"), #標題俄文
+         desc_capE = str_count(description, "[A-Z]"), #敘述英文
+         desc_capR = str_count(description, "[А-Я]"), #敘述俄文
+         titl_cap = str_count(description, "[A-ZА-Я]"), #混合標題
+         desc_cap = str_count(description, "[A-ZА-Я]"), #混合敘述
+         titl_pun = str_count(title, "[[:punct:]]"), #標點
+         desc_pun = str_count(description, "[[:punct:]]"), #標點符號
+         titl_dig = str_count(title, "[[:digit:]]"), #位元
+         desc_dig = str_count(description, "[[:digit:]]"), #位元
+         user_type = factor(user_type)  ,
          category_name = factor(category_name) %>% as.integer(),
          parent_category_name = factor(parent_category_name) %>% as.integer(), 
          region = factor(region) %>% as.integer(),
@@ -68,7 +68,7 @@ tr_te <- tr %>%
          txt = paste(title, description, sep = " "),
          mday = mday(activation_date),
          wday = wday(activation_date)) %>% 
-  select(-image, -title, -description, -activation_date) %>% 
+  select(-title, -description, -activation_date) %>% 
   replace_na(list(image_top_1 = -1,  #剩餘變數空值的處理
                   param_1 = -1, param_2 = -1, param_3 = -1, titl_cap = 0,
                   desc_len = 0, desc_cap = 0, desc_pun = 0, desc_dig = 0,
@@ -86,33 +86,81 @@ svd_all <- rbind(svd_train,svd_test)
 # bind svd feature to training data 
 svd_all <- svd_all[,c(2,18:36)]
 
+#-----------read stat data----------------
+cat("Loading stat data...\n")
+stat_train <- read_csv("input/train_feature_mean_sd.csv") 
+stat_test <- read_csv("input/test_feature_mean_sd.csv")
+stat_all <- rbind(stat_train[,-1],stat_test[,-1])
+
+svd_all <- svd_all %>% left_join(stat_all,by = c("item_id"="item_id"))
+rm(stat_all,stat_train,stat_test)
 #-----------read Image data---------------
 image_train <- read_csv("input/trainimagefeature.csv")
 image_test <- read_csv("input/testimagefeature.csv")
 image_bind <- rbind(image_train,image_test)
 
+#-----------read Image data---------------
+image_quality_1 <- read_csv("input/image_quality/features/_.csv")
+image_quality_2 <- read_csv("input/image_quality/features/test.csv")
+image_quality_3 <- read_csv("input/image_quality/features/train-0.csv")
+image_quality_4 <- read_csv("input/image_quality/features/train-1.csv")
+image_quality_5 <- read_csv("input/image_quality/features/train-2.csv")
+image_quality_6 <- read_csv("input/image_quality/features/train-3.csv")
+image_quality_7 <- read_csv("input/image_quality/features/train-4.csv")
+image_quality_all <- rbind(image_quality_1,image_quality_2,image_quality_3,image_quality_4,
+      image_quality_5,image_quality_6,image_quality_7)
+#刪除重複的column
+image_quality_all <- image_quality_all %>% distinct(image, .keep_all = T)
+rm(image_quality_1,image_quality_2,image_quality_3,image_quality_4,
+   image_quality_5,image_quality_6,image_quality_7);gc()
+
 #-----------------kmeans feature------------------------
+#SVD分群
 km11 <- kmeans(svd_all[,c(6:20)],centers=11,nstart=10)
 wss11=km11$tot.withinss
 bss11=km11$betweenss
 wss11/bss11
 clust <- km11$cluster
 
+#image quality 分群
+km11_image <- kmeans(image_quality_all[,c(2:14)],centers=11,nstart=10)
+wss11_image=km11_image$tot.withinss
+bss11_image=km11_image$betweenss
+wss11_image/bss11_image
+clust_image <- km11_image$cluster
+image_quality_all <- cbind(image_quality_all,clust_image)
+
+summarzie_image <- image_quality_all %>% select(-image) %>% group_by(clust_image) %>% summarise_all(funs(mean=mean))
+
 #----------------ridge feature-------------------------
 ridge <- read_csv("input/ridge.csv")
 
 #-----------train bind--------------------
+tr_te$image <- paste0(tr_te$image,".jpg")
+
 train_bind <- tr_te %>% left_join(svd_all,by=c("item_id"="item_id"))
 train_bind <- train_bind %>% left_join(image_bind,by=c("item_id"="item_id"))
 train_bind <- cbind(train_bind,clust)
 train_bind <- train_bind %>% left_join(ridge,by=c("item_id"="item_id"))
-train_bind <- train_bind[,-1] #把item id 拿掉
+#2011862 -> 2011965 (有重複的Col)
+train_bind <- train_bind %>% left_join(image_quality_all, by = c("image"="image"))
+train_bind <- train_bind %>% select(-item_id,-image)#把item id,image 拿掉
 
 #------------deal null value-------------
-train_bind[1807048,35:36] <- train_bind[1807047,35:36] #NA
+find_na <- function(x){(which(is.na(x)))}
+train_bind[1807048,c(35,36,54)] <- train_bind[1807047,c(35,36,54)] #NA
 train_bind$pred1[which(is.na(train_bind$pred1))] <- "NONE"
 train_bind$pred2[which(is.na(train_bind$pred2))] <- "NONE"
 train_bind$pred3[which(is.na(train_bind$pred3))] <- "NONE"
+#image quality none
+for (i in 67:79) {
+  train_bind[,i][which(is.na(train_bind[,i]))] <- -1 
+}
+#stat na processing
+train_bind$image_top_1_price_std[which(is.na(train_bind$image_top_1_price_std))] = mean(train_bind$image_top_1_price_std,na.rm=TRUE)
+train_bind$image_top_1_deal_probability_std[which(is.na(train_bind$image_top_1_deal_probability_std))] = mean(train_bind$image_top_1_deal_probability_std,na.rm=TRUE)
+train_bind$image_top_1_deal_probability_mean[which(is.na(train_bind$image_top_1_deal_probability_mean))] = mean(train_bind$image_top_1_deal_probability_mean,na.rm=TRUE)
+
 which(is.na(train_bind))
 str(train_bind)
 
@@ -224,12 +272,12 @@ cat(best_max_d,"/",best_min_c,"/",best_alpha,"/",best_subsam,"/",best_col_tree,"
 
 #Combine data
 cat("Preparing data...\n")
-#2011862 x 51
+#2011862 x 79
 X <- train_bind %>% 
   select(-txt) %>% 
   sparse.model.matrix(~ . - 1, .) %>%
   cbind(tfidf)
-
+X <- X[,-grep("NONE",colnames(X))]
 
 #-----memory manage-----
 rm(tr_te, tfidf); gc()
@@ -243,6 +291,7 @@ cols <- colnames(X)
 
 #train_ans = y[tri]
 #rm(X, y, tri); gc()
+rm(X,y);gc()
 
 cat("Training model...\n")
 # p <- list(objective = "reg:logistic",
