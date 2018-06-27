@@ -13,6 +13,7 @@ library(caret)
 library(ggplot2)
 library(corrplot)
 library(mlr)
+library(e1071)
 set.seed(0)
 
 #read data and preprocessing 
@@ -67,7 +68,8 @@ tr_te <- tr %>%
          price = log(price+0.001),
          txt = paste(title, description, sep = " "),
          mday = mday(activation_date),
-         wday = wday(activation_date)) %>% 
+         wday = wday(activation_date),
+         isweek = if_else(wday<6,1,0)) %>% 
   select(-title, -description, -activation_date) %>% 
   replace_na(list(image_top_1 = -1,  #剩餘變數空值的處理
                   param_1 = -1, param_2 = -1, param_3 = -1, titl_cap = 0,
@@ -76,7 +78,7 @@ tr_te <- tr %>%
   glimpse()
 
 #-----memory manage-----
-rm(tr, te); gc()
+
 
 #-----------read svd data----------------
 cat("Loading svd data...\n")
@@ -90,10 +92,30 @@ svd_all <- svd_all[,c(2,18:36)]
 cat("Loading stat data...\n")
 stat_train <- read_csv("input/train_feature_mean_sd.csv") 
 stat_test <- read_csv("input/test_feature_mean_sd.csv")
+tr <- tr %>% replace_na(list(image_top_1 = -1))
+a = tr %>% group_by(category_name) %>% 
+  summarise(category_price_skewness = skewness(price,na.rm = TRUE),
+            category_deal_prob_skewness = skewness(deal_probability,na.rm = TRUE))
+b = tr %>% group_by(image_top_1) %>% 
+  summarise(image_top_1_price_skewness = skewness(price,na.rm = TRUE),
+            image_top_1_deal_prob_skewness = skewness(deal_probability,na.rm = TRUE))
+c = tr %>% group_by(category_name) %>% 
+  summarise(category_price_kurtosis = kurtosis(price,na.rm = TRUE),
+            category_deal_prob_kurtosis = kurtosis(deal_probability,na.rm = TRUE))
+d = tr %>% group_by(image_top_1) %>% 
+  summarise(image_top_1_price_kurtosis = kurtosis(price,na.rm = TRUE),
+            image_top_1_deal_prob_kurtosis = kurtosis(deal_probability,na.rm = TRUE))
+category_stat <- cbind(a,c[,2:3])
+image_stat <- cbind(b,d[,2:3])
+
 stat_all <- rbind(stat_train[,-1],stat_test[,-1])
+stat_skew <- tr %>% select(1,6,17) %>% 
+  left_join(category_stat,by = c("category_name"="category_name")) 
+stat_skew <- stat_skew %>% left_join(image_stat,by = c("image_top_1"="image_top_1")) 
 
 svd_all <- svd_all %>% left_join(stat_all,by = c("item_id"="item_id"))
-rm(stat_all,stat_train,stat_test)
+svd_all <- svd_all %>% left_join(stat_skew[,c(1,4:11)],by = c("item_id" = "item_id"))
+rm(stat_all,stat_train,stat_test,stat_skew,a,b,c,d)
 #-----------read Image data---------------
 image_train <- read_csv("input/trainimagefeature.csv")
 image_test <- read_csv("input/testimagefeature.csv")
@@ -108,12 +130,12 @@ image_quality_5 <- read_csv("input/image_quality/features/train-2.csv")
 image_quality_6 <- read_csv("input/image_quality/features/train-3.csv")
 image_quality_7 <- read_csv("input/image_quality/features/train-4.csv")
 image_quality_all <- rbind(image_quality_1,image_quality_2,image_quality_3,image_quality_4,
-      image_quality_5,image_quality_6,image_quality_7)
+                           image_quality_5,image_quality_6,image_quality_7)
 #刪除重複的column
 image_quality_all <- image_quality_all %>% distinct(image, .keep_all = T)
 rm(image_quality_1,image_quality_2,image_quality_3,image_quality_4,
    image_quality_5,image_quality_6,image_quality_7);gc()
-
+rm(tr, te); gc()
 #-----------------kmeans feature------------------------
 #SVD分群
 km11 <- kmeans(svd_all[,c(6:20)],centers=11,nstart=10)
@@ -146,21 +168,26 @@ train_bind <- train_bind %>% left_join(ridge,by=c("item_id"="item_id"))
 train_bind <- train_bind %>% left_join(image_quality_all, by = c("image"="image"))
 train_bind <- train_bind %>% select(-item_id,-image)#把item id,image 拿掉
 
+
+
+
 #------------deal null value-------------
 find_na <- function(x){(which(is.na(x)))}
-train_bind[1807048,c(35,36,54)] <- train_bind[1807047,c(35,36,54)] #NA
+train_bind[1807048,c(36,37,55,56)] <- train_bind[1807047,c(36,37,55,56)] #NA
 train_bind$pred1[which(is.na(train_bind$pred1))] <- "NONE"
 train_bind$pred2[which(is.na(train_bind$pred2))] <- "NONE"
 train_bind$pred3[which(is.na(train_bind$pred3))] <- "NONE"
 #image quality none
-for (i in 67:79) {
+for (i in 76:89) {
   train_bind[,i][which(is.na(train_bind[,i]))] <- -1 
 }
 #stat na processing
-train_bind$image_top_1_price_std[which(is.na(train_bind$image_top_1_price_std))] = mean(train_bind$image_top_1_price_std,na.rm=TRUE)
-train_bind$image_top_1_deal_probability_std[which(is.na(train_bind$image_top_1_deal_probability_std))] = mean(train_bind$image_top_1_deal_probability_std,na.rm=TRUE)
-train_bind$image_top_1_deal_probability_mean[which(is.na(train_bind$image_top_1_deal_probability_mean))] = mean(train_bind$image_top_1_deal_probability_mean,na.rm=TRUE)
-
+for (i in 53:68) {
+  train_bind[,i][which(is.na(train_bind[,i]))] = mean(train_bind[,i],na.rm=TRUE)
+}
+#----------deal infinite and factor----------
+train_bind$clust_image <- as.factor(train_bind$clust_image)
+train_bind$title_desc_len_ratio[which(is.infinite(train_bind$title_desc_len_ratio))] <- -1
 which(is.na(train_bind))
 str(train_bind)
 
@@ -196,10 +223,46 @@ rm(it, vect, m_tfidf); gc()
 tune_train <- train_bind[tri,] %>% dplyr::select(-txt,-pred1,-pred2,-pred3) 
 tune_train$deal_probability <- y
 
+#-----reduction city----
+a= tune_train %>% group_by(city) %>% summarise(mean = mean(deal_probability)) %>% mutate(city_reduction = if_else(mean<0.13,0,if_else(mean<0.16,1,2))) 
+city_reduction <- a[,c(1,3)]
+
+train_bind <- train_bind %>% left_join(city_reduction,by = c("city"="city"))
+
+#-----reduction category----
+a= tune_train %>% group_by(category_name) %>% summarise(mean = mean(deal_probability)) %>% mutate(category_reduction = if_else(mean<0.13,0,if_else(mean<0.18,1,2))) 
+category_reduction <- a[,c(1,3)]
+
+train_bind <- train_bind %>% left_join(category_reduction,by = c("category_name","category_name"))
+
+#-----reduction param1----
+a= tune_train %>% group_by(param_1) %>% summarise(mean = mean(deal_probability)) %>% mutate(param1_reduction = if_else(mean<0.2,0,1)) 
+param1_reduction <- a[,c(1,3)]
+
+train_bind <- train_bind %>% left_join(param1_reduction,by = c("param_1","param_1"))
+
+#-----reduction param2----
+a= tune_train %>% group_by(param_2) %>% summarise(mean = mean(deal_probability)) %>% mutate(param2_reduction = if_else(mean<0.2,0,1)) 
+param2_reduction <- a[,c(1,3)]
+
+train_bind <- train_bind %>% left_join(param2_reduction,by = c("param_2","param_2"))
+
+train_bind$param2_reduction[param2_none] <- sample(c(0,1),replace = TRUE)param2_none <- which(is.na(train_bind$param2_reduction))
+
+#-----reduction param3----
+a= tune_train %>% group_by(param_3) %>% summarise(mean = mean(deal_probability)) %>% mutate(param3_reduction = if_else(mean<0.2,0,1)) 
+param3_reduction <- a[,c(1,3)]
+
+train_bind <- train_bind %>% left_join(param3_reduction,by = c("param_3","param_3"))
+
+which(is.na(train_bind))
 # tune_train$pred1 <- as.integer(tune_train$pred1)
 # tune_train$pred2 <- as.integer(tune_train$pred2)
 # tune_train$pred3 <- as.integer(tune_train$pred3)
 
+# select feature 
+tune_train <- train_bind[tri,] %>% dplyr::select(-txt,-pred1,-pred2,-pred3) %>% select(-c(1,2,3,4,5,6,7,8)) 
+tune_train$deal_probability <- y
 # stratafied sampling
 
 interval <- seq(0,1,length.out = 11)
@@ -207,10 +270,12 @@ tune_train_sample = list()
 for (i in 1:10) {
   sample_range <- which(tune_train$deal_probability<interval[i+1] & tune_train$deal_probability>=interval[i])
   print(length(sample_range))
-  num <- round(length(sample_range)*0.05)
+  num <- round(length(sample_range)*0.01)
   tune_train_sample[[i]] <- tune_train[sample(sample_range,num),] 
 }
 tune_train_sample = do.call(rbind,tune_train_sample)
+tune_train_sample$user_type <- as.numeric(tune_train_sample$user_type)
+tune_train_sample$clust_image <- as.numeric(tune_train_sample$clust_image)
 rm(tr_te) ; gc() # clean up
 
 # setup mlr ----------------------------
@@ -226,7 +291,7 @@ cat("Hyper parameter tuning for xgboost...")
 
 cat("Tune max_depth and min_child_weight...")
 discrete_ps = makeParamSet(
-  makeDiscreteParam("nrounds", values = c(200)),
+  makeDiscreteParam("nrounds", values = c(100)),
   makeDiscreteParam("max_depth", values = c(19,21,23,25)),
   makeDiscreteParam("min_child_weight", values = c(7,9,11,13,15))
 )
@@ -268,13 +333,14 @@ best_gamma <- res$x$gamma
 
 cat(best_max_d,"/",best_min_c,"/",best_alpha,"/",best_subsam,"/",best_col_tree,"/",best_gamma)
 #21 / 13 / 2 / 0.8 / 0.6 / 1
-
+#23 / 15 / 2 / 0.8 / 0.6 / 1.5
 
 #Combine data
 cat("Preparing data...\n")
-#2011862 x 79
+#2011862 x 94
 X <- train_bind %>% 
-  select(-txt) %>% 
+  select(-txt) %>%
+  select(-c(1:8)) %>%
   sparse.model.matrix(~ . - 1, .) %>%
   cbind(tfidf)
 X <- X[,-grep("NONE",colnames(X))]
@@ -291,7 +357,7 @@ cols <- colnames(X)
 
 #train_ans = y[tri]
 #rm(X, y, tri); gc()
-rm(X,y);gc()
+#rm(X,y);gc()
 
 cat("Training model...\n")
 # p <- list(objective = "reg:logistic",
@@ -312,9 +378,9 @@ p <- list(objective = "reg:logistic",
           eval_metric = "rmse",
           nthread = 8,
           eta = 0.05,
-          max_depth = 21,  
+          max_depth = 23,  
           min_child_weight = 13, 
-          gamma = 1,
+          gamma = 1.5,
           subsample = 0.8,
           colsample_bytree = 0.6,
           alpha = 2, 
